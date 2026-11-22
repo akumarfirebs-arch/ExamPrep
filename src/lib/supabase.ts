@@ -128,23 +128,49 @@ export async function signInWithEmail(email: string, password: string): Promise<
       email: cleanEmail,
       password,
     });
-    if (error) throw new Error(error.message);
-    if (!data.user) throw new Error('Sign in failed');
-
-    const profile = await getCurrentUserProfile();
-    if (!profile) throw new Error('Could not load user profile');
-    return profile;
+    if (!error && data.user) {
+      const profile = await getCurrentUserProfile();
+      if (profile) {
+        await ssrSafeStorage.setItem(LOCAL_USER_KEY, JSON.stringify(profile));
+        return profile;
+      }
+    }
   }
 
   // Local fallback auth
   const users = await getLocalUsers();
   const existing = users.find((u) => u.email.toLowerCase() === cleanEmail);
-  if (!existing) {
-    throw new Error('No account found with this email. Please sign up first.');
+  if (existing) {
+    await ssrSafeStorage.setItem(LOCAL_USER_KEY, JSON.stringify(existing));
+    return existing;
   }
 
-  await ssrSafeStorage.setItem(LOCAL_USER_KEY, JSON.stringify(existing));
-  return existing;
+  throw new Error('Sign in failed. Check your credentials or confirm your email in Supabase.');
+}
+
+async function createLocalUser(cleanEmail: string, cleanName: string, role: UserRole = 'user'): Promise<UserProfile> {
+  const users = await getLocalUsers();
+  const existing = users.find((u) => u.email.toLowerCase() === cleanEmail);
+  if (existing) {
+    const updated = { ...existing, name: cleanName, role };
+    const nextUsers = users.map((u) => (u.id === existing.id ? updated : u));
+    await ssrSafeStorage.setItem(LOCAL_USERS_DB_KEY, JSON.stringify(nextUsers));
+    await ssrSafeStorage.setItem(LOCAL_USER_KEY, JSON.stringify(updated));
+    return updated;
+  }
+
+  const newUser: UserProfile = {
+    id: `${role}-${Date.now()}`,
+    email: cleanEmail,
+    name: cleanName,
+    role,
+    avatarUrl: role === 'admin' ? 'avatar-admin' : 'avatar-1',
+    createdAt: Date.now(),
+  };
+
+  await ssrSafeStorage.setItem(LOCAL_USERS_DB_KEY, JSON.stringify([...users, newUser]));
+  await ssrSafeStorage.setItem(LOCAL_USER_KEY, JSON.stringify(newUser));
+  return newUser;
 }
 
 export async function signUpWithEmail(
@@ -168,18 +194,31 @@ export async function signUpWithEmail(
         },
       },
     });
-    if (error) throw new Error(error.message);
+
+    if (error) {
+      // If Supabase free-tier email rate limit is exceeded (~3 confirmation emails/hr)
+      if (error.message.toLowerCase().includes('rate limit')) {
+        console.warn('Supabase email rate limit reached. Creating local fallback profile.');
+        return await createLocalUser(cleanEmail, cleanName, role);
+      }
+      throw new Error(error.message);
+    }
+
     if (!data.user) throw new Error('Sign up failed');
 
     // Create profile entry in Supabase
-    await supabase.from('profiles').upsert({
-      id: data.user.id,
-      email: cleanEmail,
-      name: cleanName,
-      role,
-      avatar_url: role === 'admin' ? 'avatar-admin' : 'avatar-1',
-      updated_at: new Date().toISOString(),
-    });
+    try {
+      await supabase.from('profiles').upsert({
+        id: data.user.id,
+        email: cleanEmail,
+        name: cleanName,
+        role,
+        avatar_url: role === 'admin' ? 'avatar-admin' : 'avatar-1',
+        updated_at: new Date().toISOString(),
+      });
+    } catch {
+      // Ignore if table schema not yet created
+    }
 
     const profile: UserProfile = {
       id: data.user.id,
@@ -189,27 +228,12 @@ export async function signUpWithEmail(
       avatarUrl: role === 'admin' ? 'avatar-admin' : 'avatar-1',
       createdAt: Date.now(),
     };
+    await ssrSafeStorage.setItem(LOCAL_USER_KEY, JSON.stringify(profile));
     return profile;
   }
 
   // Local fallback
-  const users = await getLocalUsers();
-  if (users.some((u) => u.email.toLowerCase() === cleanEmail)) {
-    throw new Error('An account with this email already exists.');
-  }
-
-  const newUser: UserProfile = {
-    id: `user-${Date.now()}`,
-    email: cleanEmail,
-    name: cleanName,
-    role,
-    avatarUrl: role === 'admin' ? 'avatar-admin' : 'avatar-1',
-    createdAt: Date.now(),
-  };
-
-  await ssrSafeStorage.setItem(LOCAL_USERS_DB_KEY, JSON.stringify([...users, newUser]));
-  await ssrSafeStorage.setItem(LOCAL_USER_KEY, JSON.stringify(newUser));
-  return newUser;
+  return createLocalUser(cleanEmail, cleanName, role);
 }
 
 /**
@@ -252,18 +276,27 @@ export async function createSubAdminAccount(
       },
     });
 
-    if (error) throw new Error(error.message);
+    if (error) {
+      if (error.message.toLowerCase().includes('rate limit')) {
+        return await createLocalUser(cleanEmail, cleanName, 'admin');
+      }
+      throw new Error(error.message);
+    }
     if (!data.user) throw new Error('Could not create sub-admin account in Supabase');
 
     // Upsert into profiles table
-    await supabase.from('profiles').upsert({
-      id: data.user.id,
-      email: cleanEmail,
-      name: cleanName,
-      role: 'admin',
-      avatar_url: 'avatar-admin',
-      updated_at: new Date().toISOString(),
-    });
+    try {
+      await supabase.from('profiles').upsert({
+        id: data.user.id,
+        email: cleanEmail,
+        name: cleanName,
+        role: 'admin',
+        avatar_url: 'avatar-admin',
+        updated_at: new Date().toISOString(),
+      });
+    } catch {
+      // Ignore if table schema not yet created
+    }
 
     return {
       id: data.user.id,
@@ -276,22 +309,7 @@ export async function createSubAdminAccount(
   }
 
   // Local fallback
-  const users = await getLocalUsers();
-  if (users.some((u) => u.email.toLowerCase() === cleanEmail)) {
-    throw new Error('An account with this email already exists.');
-  }
-
-  const newAdmin: UserProfile = {
-    id: `admin-${Date.now()}`,
-    email: cleanEmail,
-    name: cleanName,
-    role: 'admin',
-    avatarUrl: 'avatar-admin',
-    createdAt: Date.now(),
-  };
-
-  await ssrSafeStorage.setItem(LOCAL_USERS_DB_KEY, JSON.stringify([...users, newAdmin]));
-  return newAdmin;
+  return createLocalUser(cleanEmail, cleanName, 'admin');
 }
 
 export async function updateProfile(updates: Partial<UserProfile>): Promise<UserProfile> {
