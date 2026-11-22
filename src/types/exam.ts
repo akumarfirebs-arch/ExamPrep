@@ -1,4 +1,15 @@
 export type Language = 'en' | 'hi';
+export type UserRole = 'user' | 'admin';
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  avatarUrl?: string;
+  selectedExamId?: string;
+  createdAt: number;
+}
 
 export interface SubExam {
   id: string;

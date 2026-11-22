@@ -188,7 +188,7 @@ export function ProgressBar({ value, color = UI.primary }: { value: number; colo
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: UI.background },
-  page: { width: '100%', maxWidth: 640, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 36, gap: 20 },
+  page: { width: '100%', maxWidth: 860, alignSelf: 'center', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 36, gap: 20 },
   fill: { flex: 1 },
   badge: { alignSelf: 'flex-start', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
   badgeText: { fontSize: 10, fontWeight: '800', letterSpacing: 0.6 },

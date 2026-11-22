@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 
 import { ExamButton, Heading, Panel, Pill, ScreenFrame, showNotice, TextField, TypeBadge, UI } from '@/components/exam-ui';
 import { EXAMS } from '@/data/exams';
+import { useAuth } from '@/lib/authContext';
 import { saveTest } from '@/lib/examStorage';
 import type { Question, TestConfig, TestType } from '@/types/exam';
 
@@ -16,6 +17,7 @@ const TYPES: { value: TestType; label: string }[] = [
 const LETTERS = ['A', 'B', 'C', 'D'];
 
 export default function AdminCreateTest() {
+  const { user, isAdmin } = useAuth();
   const [testId] = useState(() => `custom-${Date.now()}`);
   const [examId, setExamId] = useState(EXAMS[0].id);
   const [subExamId, setSubExamId] = useState<string | undefined>(EXAMS[0].subExams?.[0]?.id);
@@ -178,6 +180,41 @@ export default function AdminCreateTest() {
       showNotice('Could not save test', 'Please check device storage and try again.');
     }
   };
+
+  if (!isAdmin) {
+    return (
+      <ScreenFrame>
+        <View style={styles.topRow}>
+          <Pressable onPress={() => router.back()} style={styles.backButton} accessibilityRole="button">
+            <Text style={styles.backText}>‹</Text>
+          </Pressable>
+          <View style={styles.topCopy}>
+            <Text style={styles.topEyebrow}>ACCESS CONTROL</Text>
+            <Text style={styles.topTitle}>Admin Portal</Text>
+          </View>
+          <View style={{ width: 44 }} />
+        </View>
+        <Panel style={styles.unauthorizedCard}>
+          <View style={styles.unauthorizedBadge}>
+            <Text style={styles.unauthorizedBadgeText}>ADMIN PERMISSION REQUIRED</Text>
+          </View>
+          <Text style={styles.unauthorizedTitle}>Restricted to Educators & Admins</Text>
+          <Text style={styles.unauthorizedText}>
+            You are currently signed in as {user ? `${user.name} (${user.role.toUpperCase()})` : 'a Guest'}. Only administrator accounts are authorized to build, edit, and publish tests.
+          </Text>
+          <ExamButton
+            title="Switch / Sign in as Admin"
+            onPress={() => router.push('/login')}
+          />
+          <ExamButton
+            title="Back to Exam Hub"
+            onPress={() => router.replace('/')}
+            variant="outline"
+          />
+        </Panel>
+      </ScreenFrame>
+    );
+  }
 
   return (
     <ScreenFrame>
@@ -431,6 +468,11 @@ const styles = StyleSheet.create({
   exportHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   exportTitle: { color: UI.ink, fontSize: 19, fontWeight: '900' },
   exportHint: { color: UI.muted, fontSize: 11, marginTop: 4 },
+  unauthorizedCard: { padding: 22, gap: 14, alignItems: 'center', backgroundColor: '#FFF6F7', borderColor: '#FFD3D8' },
+  unauthorizedBadge: { backgroundColor: '#FFE2E6', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
+  unauthorizedBadgeText: { color: UI.red, fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
+  unauthorizedTitle: { color: UI.ink, fontSize: 18, fontWeight: '900', textAlign: 'center' },
+  unauthorizedText: { color: UI.muted, fontSize: 13, lineHeight: 20, textAlign: 'center' },
   closeButton: { width: 44, height: 44, borderRadius: 13, backgroundColor: UI.surface, alignItems: 'center', justifyContent: 'center' },
   closeText: { color: UI.ink, fontSize: 24, lineHeight: 26 },
   jsonScroll: { flex: 1, borderRadius: 14, backgroundColor: '#17233C' },

@@ -3,7 +3,9 @@ import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { router, useFocusEffect } from 'expo-router';
 
 import { ExamButton, Heading, Panel, Pill, ScreenFrame, showNotice, TypeBadge, UI } from '@/components/exam-ui';
+import { UserAvatar } from '@/components/user-avatar';
 import { EXAMS, TEST_TYPE_LABELS } from '@/data/exams';
+import { useAuth } from '@/lib/authContext';
 import { getActiveAttempt, getResults, getTests } from '@/lib/examStorage';
 import type { ActiveAttempt, TestConfig, TestResult, TestType } from '@/types/exam';
 
@@ -15,6 +17,7 @@ const MODES: { type: TestType; label: string }[] = [
 ];
 
 export default function ExamHubScreen() {
+  const { user, isAdmin } = useAuth();
   const [examId, setExamId] = useState(EXAMS[0].id);
   const [subExamId, setSubExamId] = useState<string | null>(null);
   const [mode, setMode] = useState<TestType>('MOCK');
@@ -74,9 +77,30 @@ export default function ExamHubScreen() {
           <View style={styles.brandMark}><Text style={styles.brandMarkText}>E</Text></View>
           <Text style={styles.brandName}>ExamPrep</Text>
         </View>
-        <Pressable onPress={() => router.push('/admin')} style={styles.adminButton} accessibilityRole="button">
-          <Text style={styles.adminButtonText}>+ Build a test</Text>
-        </Pressable>
+
+        <View style={styles.topActions}>
+          {isAdmin && (
+            <Pressable onPress={() => router.push('/admin')} style={styles.adminButton} accessibilityRole="button">
+              <Text style={styles.adminButtonText}>+ Build a test</Text>
+            </Pressable>
+          )}
+
+          {user ? (
+            <Pressable onPress={() => router.push('/profile')} style={styles.profileBadge} accessibilityRole="button">
+              <UserAvatar avatarUrl={user.avatarUrl} name={user.name} size={34} />
+              <View style={styles.profileTextWrap}>
+                <Text numberOfLines={1} style={styles.profileName}>{user.name.split(' ')[0]}</Text>
+                <Text style={[styles.profileRole, { color: user.role === 'admin' ? UI.red : UI.primary }]}>
+                  {user.role.toUpperCase()}
+                </Text>
+              </View>
+            </Pressable>
+          ) : (
+            <Pressable onPress={() => router.push('/login')} style={styles.loginButton} accessibilityRole="button">
+              <Text style={styles.loginButtonText}>Sign In</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
 
       <View style={styles.hero}>
@@ -226,8 +250,15 @@ const styles = StyleSheet.create({
   brandMark: { width: 34, height: 34, borderRadius: 12, backgroundColor: UI.primary, alignItems: 'center', justifyContent: 'center' },
   brandMarkText: { color: '#fff', fontSize: 18, fontWeight: '900' },
   brandName: { color: UI.ink, fontSize: 16, fontWeight: '900' },
+  topActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   adminButton: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 13, borderRadius: 13, backgroundColor: UI.surface, borderWidth: 1, borderColor: UI.line },
   adminButtonText: { color: UI.primary, fontWeight: '800', fontSize: 12 },
+  profileBadge: { flexDirection: 'row', alignItems: 'center', gap: 8, padding: 5, paddingRight: 10, borderRadius: 20, backgroundColor: UI.surface, borderWidth: 1, borderColor: UI.line },
+  profileTextWrap: { gap: 1 },
+  profileName: { color: UI.ink, fontSize: 11, fontWeight: '800', maxWidth: 70 },
+  profileRole: { fontSize: 8, fontWeight: '900', letterSpacing: 0.5 },
+  loginButton: { minHeight: 40, justifyContent: 'center', paddingHorizontal: 14, borderRadius: 12, backgroundColor: UI.primary },
+  loginButtonText: { color: '#fff', fontSize: 12, fontWeight: '800' },
   hero: { overflow: 'hidden', backgroundColor: UI.ink, borderRadius: 26, padding: 23, gap: 11 },
   eyebrow: { color: '#B8C2FF', fontSize: 10, fontWeight: '900', letterSpacing: 1.6 },
   heroTitle: { color: '#FFFFFF', fontSize: 34, fontWeight: '900', lineHeight: 39, letterSpacing: -1.2 },
