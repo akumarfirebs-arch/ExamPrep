@@ -2,16 +2,22 @@ import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
-import { ExamButton, Heading, Panel, ScreenFrame, showNotice, UI } from '@/components/exam-ui';
+import { ExamButton, Heading, Panel, ScreenFrame, showNotice, TextField, UI } from '@/components/exam-ui';
 import { PRESET_AVATARS, UserAvatar } from '@/components/user-avatar';
 import { useAuth } from '@/lib/authContext';
 import { getResults } from '@/lib/examStorage';
 import type { TestResult } from '@/types/exam';
 
 export default function ProfileScreen() {
-  const { user, signOut, updateAvatar } = useAuth();
+  const { user, signOut, updateAvatar, createSubAdmin } = useAuth();
   const [results, setResults] = useState<TestResult[]>([]);
   const [updating, setUpdating] = useState(false);
+
+  // Sub-admin creation state (Admin only)
+  const [subAdminName, setSubAdminName] = useState('');
+  const [subAdminEmail, setSubAdminEmail] = useState('');
+  const [subAdminPass, setSubAdminPass] = useState('');
+  const [isCreatingSubAdmin, setIsCreatingSubAdmin] = useState(false);
 
   useEffect(() => {
     void getResults().then(setResults).catch(() => {});
@@ -53,6 +59,33 @@ export default function ProfileScreen() {
       showNotice('Error', 'Could not update avatar.');
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleCreateSubAdmin = async () => {
+    if (!subAdminName.trim() || !subAdminEmail.trim() || !subAdminPass) {
+      showNotice('Missing Fields', 'Please fill name, email, and temporary password for the new sub-admin.');
+      return;
+    }
+    if (subAdminPass.length < 6) {
+      showNotice('Password Too Short', 'Password must be at least 6 characters.');
+      return;
+    }
+    setIsCreatingSubAdmin(true);
+    try {
+      const newAdmin = await createSubAdmin(subAdminName.trim(), subAdminEmail.trim(), subAdminPass);
+      showNotice(
+        'Sub-Admin Created',
+        `Sub-admin account for ${newAdmin.name} (${newAdmin.email}) created successfully with role: admin! They can now log in and build tests.`
+      );
+      setSubAdminName('');
+      setSubAdminEmail('');
+      setSubAdminPass('');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Could not create sub-admin';
+      showNotice('Creation Failed', msg);
+    } finally {
+      setIsCreatingSubAdmin(false);
     }
   };
 
@@ -153,19 +186,60 @@ export default function ProfileScreen() {
       </View>
 
       {user.role === 'admin' && (
-        <Panel style={styles.adminPrivilegeCard}>
-          <View style={styles.adminPrivilegeHeader}>
-            <Text style={styles.adminPrivilegeBadge}>ADMIN PRIVILEGES ACTIVE</Text>
-          </View>
-          <Text style={styles.adminPrivilegeTitle}>Educator & Test Builder Access</Text>
-          <Text style={styles.adminPrivilegeText}>
-            You have full administrator access to create new tests, configure positive/negative marking, add bilingual questions, and publish exam sets.
-          </Text>
-          <ExamButton
-            title="Open Test Builder (+ Build a test)"
-            onPress={() => router.push('/admin')}
-          />
-        </Panel>
+        <>
+          <Panel style={styles.adminPrivilegeCard}>
+            <View style={styles.adminPrivilegeHeader}>
+              <Text style={styles.adminPrivilegeBadge}>ADMIN PRIVILEGES ACTIVE</Text>
+            </View>
+            <Text style={styles.adminPrivilegeTitle}>Educator & Test Builder Access</Text>
+            <Text style={styles.adminPrivilegeText}>
+              You have full administrator access to create new tests, configure positive/negative marking, add bilingual questions, and publish exam sets.
+            </Text>
+            <ExamButton
+              title="Open Test Builder (+ Build a test)"
+              onPress={() => router.push('/admin')}
+            />
+          </Panel>
+
+          <Panel style={styles.subAdminCard}>
+            <View style={styles.subAdminHeader}>
+              <Text style={styles.subAdminBadge}>ADMIN ONLY • TEAM MANAGEMENT</Text>
+            </View>
+            <Text style={styles.subAdminTitle}>Create New Sub-Admin / Educator</Text>
+            <Text style={styles.subAdminText}>
+              Public registration only grants candidate/student access. As an Administrator, you can create new sub-admin accounts here with full test creation permissions.
+            </Text>
+
+            <View style={styles.subAdminForm}>
+              <TextField
+                label="Sub-Admin Full Name"
+                value={subAdminName}
+                onChangeText={setSubAdminName}
+                placeholder="e.g. Rahul Sharma"
+              />
+              <TextField
+                label="Official Email Address"
+                value={subAdminEmail}
+                onChangeText={setSubAdminEmail}
+                placeholder="subadmin@examprep.org"
+              />
+              <TextField
+                label="Temporary Password"
+                value={subAdminPass}
+                onChangeText={setSubAdminPass}
+                placeholder="Minimum 6 characters"
+                secureTextEntry
+              />
+
+              <ExamButton
+                title={isCreatingSubAdmin ? 'Creating Sub-Admin…' : 'Create Sub-Admin Account'}
+                onPress={() => void handleCreateSubAdmin()}
+                disabled={isCreatingSubAdmin}
+                variant="secondary"
+              />
+            </View>
+          </Panel>
+        </>
       )}
 
       <View style={styles.signOutSection}>
@@ -208,6 +282,12 @@ const styles = StyleSheet.create({
   adminPrivilegeBadge: { color: UI.red, fontSize: 9, fontWeight: '900', letterSpacing: 0.8 },
   adminPrivilegeTitle: { color: UI.ink, fontSize: 16, fontWeight: '900' },
   adminPrivilegeText: { color: UI.muted, fontSize: 12, lineHeight: 18 },
+  subAdminCard: { padding: 18, gap: 10, backgroundColor: UI.surface, borderWidth: 1.5, borderColor: UI.line },
+  subAdminHeader: { flexDirection: 'row' },
+  subAdminBadge: { color: UI.purple, fontSize: 9, fontWeight: '900', letterSpacing: 0.8 },
+  subAdminTitle: { color: UI.ink, fontSize: 16, fontWeight: '900' },
+  subAdminText: { color: UI.muted, fontSize: 12, lineHeight: 18 },
+  subAdminForm: { gap: 10, marginTop: 4 },
   signOutSection: { marginTop: 6 },
   notLoggedCard: { padding: 24, gap: 14, alignItems: 'center' },
   notLoggedTitle: { color: UI.ink, fontSize: 18, fontWeight: '900' },

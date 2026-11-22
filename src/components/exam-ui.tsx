@@ -137,6 +137,7 @@ export function TextField({
   multiline = false,
   keyboardType = 'default',
   editable = true,
+  secureTextEntry = false,
 }: {
   label: string;
   value: string;
@@ -145,6 +146,7 @@ export function TextField({
   multiline?: boolean;
   keyboardType?: 'default' | 'numeric' | 'decimal-pad';
   editable?: boolean;
+  secureTextEntry?: boolean;
 }) {
   return (
     <View style={styles.fieldWrap}>
@@ -157,6 +159,7 @@ export function TextField({
         onChangeText={onChangeText}
         placeholder={placeholder}
         placeholderTextColor={UI.muted}
+        secureTextEntry={secureTextEntry}
         style={[styles.input, multiline && styles.inputMultiline, !editable && styles.inputDisabled]}
         textAlignVertical={multiline ? 'top' : 'center'}
         value={value}

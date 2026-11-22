@@ -2,27 +2,57 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 import type { UserProfile, UserRole } from '@/types/exam';
 
-const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
+const SUPABASE_URL =
+  process.env.EXPO_PUBLIC_SUPABASE_URL ||
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  'https://rkvdjtzzbpkrjrwmbyoo.supabase.co';
+
+const SUPABASE_ANON_KEY =
+  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+  'sb_publishable_8ADsx-yd4JHngsacbWR7Vg_OmrjnOJG';
 
 export const isSupabaseConfigured = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
+
+export const ssrSafeStorage = {
+  getItem: async (key: string): Promise<string | null> => {
+    if (typeof window === 'undefined') return null;
+    try {
+      return await AsyncStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem: async (key: string, value: string): Promise<void> => {
+    if (typeof window === 'undefined') return;
+    try {
+      await AsyncStorage.setItem(key, value);
+    } catch {}
+  },
+  removeItem: async (key: string): Promise<void> => {
+    if (typeof window === 'undefined') return;
+    try {
+      await AsyncStorage.removeItem(key);
+    } catch {}
+  },
+};
 
 export const supabase = isSupabaseConfigured
   ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       auth: {
-        storage: AsyncStorage,
-        autoRefreshToken: true,
-        persistSession: true,
+        storage: ssrSafeStorage,
+        autoRefreshToken: typeof window !== 'undefined',
+        persistSession: typeof window !== 'undefined',
         detectSessionInUrl: false,
       },
     })
   : null;
 
-// Local fallback storage keys for offline or pre-Supabase setup
+// Local fallback storage keys
 const LOCAL_USER_KEY = '@examprep/current-user-v1';
 const LOCAL_USERS_DB_KEY = '@examprep/registered-users-v1';
 
-// Default seeded accounts for instant offline testing
+// Seeded accounts
 const DEMO_USERS: UserProfile[] = [
   {
     id: 'demo-student-01',
@@ -43,9 +73,9 @@ const DEMO_USERS: UserProfile[] = [
 ];
 
 async function getLocalUsers(): Promise<UserProfile[]> {
-  const raw = await AsyncStorage.getItem(LOCAL_USERS_DB_KEY);
+  const raw = await ssrSafeStorage.getItem(LOCAL_USERS_DB_KEY);
   if (!raw) {
-    await AsyncStorage.setItem(LOCAL_USERS_DB_KEY, JSON.stringify(DEMO_USERS));
+    await ssrSafeStorage.setItem(LOCAL_USERS_DB_KEY, JSON.stringify(DEMO_USERS));
     return DEMO_USERS;
   }
   return JSON.parse(raw);
@@ -85,8 +115,8 @@ export async function getCurrentUserProfile(): Promise<UserProfile | null> {
   }
 
   // Local Storage fallback
-  const raw = await AsyncStorage.getItem(LOCAL_USER_KEY);
-  if (!raw) return DEMO_USERS[0]; // Default logged in as student for seamless first experience
+  const raw = await ssrSafeStorage.getItem(LOCAL_USER_KEY);
+  if (!raw) return DEMO_USERS[0];
   return JSON.parse(raw);
 }
 
@@ -113,7 +143,7 @@ export async function signInWithEmail(email: string, password: string): Promise<
     throw new Error('No account found with this email. Please sign up first.');
   }
 
-  await AsyncStorage.setItem(LOCAL_USER_KEY, JSON.stringify(existing));
+  await ssrSafeStorage.setItem(LOCAL_USER_KEY, JSON.stringify(existing));
   return existing;
 }
 
@@ -141,7 +171,7 @@ export async function signUpWithEmail(
     if (error) throw new Error(error.message);
     if (!data.user) throw new Error('Sign up failed');
 
-    // Create profile entry
+    // Create profile entry in Supabase
     await supabase.from('profiles').upsert({
       id: data.user.id,
       email: cleanEmail,
@@ -177,9 +207,91 @@ export async function signUpWithEmail(
     createdAt: Date.now(),
   };
 
-  await AsyncStorage.setItem(LOCAL_USERS_DB_KEY, JSON.stringify([...users, newUser]));
-  await AsyncStorage.setItem(LOCAL_USER_KEY, JSON.stringify(newUser));
+  await ssrSafeStorage.setItem(LOCAL_USERS_DB_KEY, JSON.stringify([...users, newUser]));
+  await ssrSafeStorage.setItem(LOCAL_USER_KEY, JSON.stringify(newUser));
   return newUser;
+}
+
+/**
+ * Only an authorized Admin can call this function to create a sub-admin.
+ * Uses a separate non-persisting client so the Admin's session is never disrupted.
+ */
+export async function createSubAdminAccount(
+  name: string,
+  email: string,
+  password: string,
+): Promise<UserProfile> {
+  const currentAdmin = await getCurrentUserProfile();
+  if (!currentAdmin || currentAdmin.role !== 'admin') {
+    throw new Error('Unauthorized: Only administrators can create sub-admin accounts.');
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanName = name.trim();
+
+  if (supabase) {
+    // Isolated client instance with no session persistence to preserve current admin's session
+    const tempClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    });
+
+    const { data, error } = await tempClient.auth.signUp({
+      email: cleanEmail,
+      password,
+      options: {
+        data: {
+          name: cleanName,
+          role: 'admin',
+          avatarUrl: 'avatar-admin',
+          createdBy: currentAdmin.id,
+        },
+      },
+    });
+
+    if (error) throw new Error(error.message);
+    if (!data.user) throw new Error('Could not create sub-admin account in Supabase');
+
+    // Upsert into profiles table
+    await supabase.from('profiles').upsert({
+      id: data.user.id,
+      email: cleanEmail,
+      name: cleanName,
+      role: 'admin',
+      avatar_url: 'avatar-admin',
+      updated_at: new Date().toISOString(),
+    });
+
+    return {
+      id: data.user.id,
+      email: cleanEmail,
+      name: cleanName,
+      role: 'admin',
+      avatarUrl: 'avatar-admin',
+      createdAt: Date.now(),
+    };
+  }
+
+  // Local fallback
+  const users = await getLocalUsers();
+  if (users.some((u) => u.email.toLowerCase() === cleanEmail)) {
+    throw new Error('An account with this email already exists.');
+  }
+
+  const newAdmin: UserProfile = {
+    id: `admin-${Date.now()}`,
+    email: cleanEmail,
+    name: cleanName,
+    role: 'admin',
+    avatarUrl: 'avatar-admin',
+    createdAt: Date.now(),
+  };
+
+  await ssrSafeStorage.setItem(LOCAL_USERS_DB_KEY, JSON.stringify([...users, newAdmin]));
+  return newAdmin;
 }
 
 export async function updateProfile(updates: Partial<UserProfile>): Promise<UserProfile> {
@@ -201,11 +313,10 @@ export async function updateProfile(updates: Partial<UserProfile>): Promise<User
     });
   }
 
-  // Update in local storage
-  await AsyncStorage.setItem(LOCAL_USER_KEY, JSON.stringify(updated));
+  await ssrSafeStorage.setItem(LOCAL_USER_KEY, JSON.stringify(updated));
   const users = await getLocalUsers();
   const nextUsers = users.map((u) => (u.id === updated.id ? updated : u));
-  await AsyncStorage.setItem(LOCAL_USERS_DB_KEY, JSON.stringify(nextUsers));
+  await ssrSafeStorage.setItem(LOCAL_USERS_DB_KEY, JSON.stringify(nextUsers));
 
   return updated;
 }
@@ -214,5 +325,5 @@ export async function signOutUser(): Promise<void> {
   if (supabase) {
     await supabase.auth.signOut();
   }
-  await AsyncStorage.removeItem(LOCAL_USER_KEY);
+  await ssrSafeStorage.removeItem(LOCAL_USER_KEY);
 }

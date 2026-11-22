@@ -70,6 +70,7 @@ export default function LoginScreen() {
           value={password}
           onChangeText={setPassword}
           placeholder="••••••••"
+          secureTextEntry
         />
 
         <ExamButton

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
-import { getCurrentUserProfile, signInWithEmail, signOutUser, signUpWithEmail, updateProfile } from '@/lib/supabase';
+import { createSubAdminAccount, getCurrentUserProfile, signInWithEmail, signOutUser, signUpWithEmail, updateProfile } from '@/lib/supabase';
 import type { UserProfile, UserRole } from '@/types/exam';
 
 interface AuthContextType {
@@ -9,6 +9,7 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
   signIn: (email: string, pass: string) => Promise<UserProfile>;
   signUp: (email: string, pass: string, name: string, role?: UserRole) => Promise<UserProfile>;
+  createSubAdmin: (name: string, email: string, pass: string) => Promise<UserProfile>;
   signOut: () => Promise<void>;
   updateAvatar: (avatarUrl: string) => Promise<void>;
 }
@@ -20,6 +21,7 @@ const AuthContext = createContext<AuthContextType>({
   refreshUser: async () => {},
   signIn: async () => ({ id: '', email: '', name: '', role: 'user', createdAt: 0 }),
   signUp: async () => ({ id: '', email: '', name: '', role: 'user', createdAt: 0 }),
+  createSubAdmin: async () => ({ id: '', email: '', name: '', role: 'admin', createdAt: 0 }),
   signOut: async () => {},
   updateAvatar: async () => {},
 });
@@ -69,6 +71,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return created;
   };
 
+  const createSubAdmin = async (name: string, email: string, pass: string) => {
+    return createSubAdminAccount(name, email, pass);
+  };
+
   const signOut = async () => {
     await signOutUser();
     setUser(null);
@@ -90,6 +96,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         refreshUser,
         signIn,
         signUp,
+        createSubAdmin,
         signOut,
         updateAvatar,
       }}>
